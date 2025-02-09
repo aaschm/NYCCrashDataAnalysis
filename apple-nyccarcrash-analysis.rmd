@@ -1,0 +1,436 @@
+---
+title: "Statistical Theory Group Project"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '1'
+  html_document:
+    toc: yes
+    toc_depth: 1
+    theme: cerulean
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+# **2022 New York City Vehicle Collision Data Analysis**
+
+------------------------------------------------------------------------
+
+# Exploratory Data Analysis.
+
+------------------------------------------------------------------------
+
+-   We are analyzing car crash data in New York City.
+    We obtotallengthained the data from <https://catalog.data.gov/dataset/motor-vehicle-collisions-crashes/resource/b5a431d2-4832-43a6-9334-86b62bdb033f>.
+
+-   There are **18 variables** and **45,678 observations** in this data set after we did some filtering.
+    This is the link to the filtered data for reference: ​​<https://docs.google.com/spreadsheets/d/1gHBE0n8WqpY7oDzbfboo0YhqLc6lw5cUNz87_n75LEo/edit?usp=sharing>
+
+-   The original data set contains **30 variables** and **1,048,576 observations**, so we decided to filter on just one year (2022) and reduce the variable count to what we thought was relevant for analysis.
+    This is the link to the original data set: <https://data.cityofnewyork.us/api/views/h9gi-nx95/rows.csv?accessType=DOWNLOAD>
+
+-   Each observation has information on details about the crash such as location, vehicle type, number of people injured, and contributing factors.
+
+-   The variables of interest are defined below:
+
+    -   `CRASH.DATE`: MM/DD/YYYY (categorical)
+    -   `NUMBER.OF.PERSONS.INJURED`: Number of people injured as a result of the car crash (numerical)
+    -   `` `BOROUGH` ``: Describes the borough where the car crash occurred within NYC. (categorical)
+
+## Importing Data
+
+------------------------------------------------------------------------
+
+In the code cell below, we import a .csv and assign it to a vector named named `nyccrashdata`.
+
+```{r}
+# import .csv
+# be sure to change directory to wherever the .csv is downloaded
+
+nyccrashdata <- read.csv("~/Downloads/nyccrashdata.csv",
+                         header=TRUE,
+                         sep = ",",)
+summary(nyccrashdata)
+```
+
+## Cleaning the Data
+
+------------------------------------------------------------------------
+
+-   There were initially a few issues we found with the original .csv file:
+    -   Dates in `nyccrashdata` are saved as character strings and not formatted correctly.
+    -   There were originally over 4 million rows of data which made it incredibly difficult to even open using Excel (Excel can only read around 1 million rows of data).
+    -   Some rows did not have values for `CRASH.DATE`or `BOROUGH` which would consequently skew our proportion results since we planned on counting rows to find the proportion.
+-   In the data cleaning and EDA process, we addressed some of these:
+    -   We narrowed down the data to only contain entries from the year 2022.
+    -   We removed all rows that have any missing values for `CRASH.DATE`or `BOROUGH` using Excel (using Excel was simpler and since there were still nearly 130,000 entries, we figured there would be less errors).
+        -   We assumed that if these were missing, there was most likely some human or database error that caused the values to be absent.
+    -   Formatted the date below so that it was recognizable by R (see the following code cell)
+
+```{r - Formatting CRASH.DATE}
+
+# convert crash date from string to date format
+nyccrashdata$CRASH.DATE <- as.Date(nyccrashdata$CRASH.DATE, format = "%m/%d/%Y")
+```
+
+------------------------------------------------------------------------
+
+## Statistical Research Questions
+
+Is the mean number of injuries that are occur in Brooklyn in the month of July different from the mean number of injuries that occur in Queens in the month of July?
+
+-   We will answer this by testing for the difference in two means using the classical method as well as a permutation method.
+
+Is there a difference between the proportion of car crashes in Brooklyn versus Queens during the month of July?
+
+-   We will answer by performing a hypothesis test for the difference in proportions of car crashes that occur in Queens and Brooklyn during the month of July compared to the rest of the year. We will do this by performing a proportion test using R. We will also run a permutation so that we can compare calculations.
+
+Can we make a 95% confidence interval that will contain the mean number of car crashes for NYC as a whole by examining a sample from one borough?
+
+## Plots Related to Statistical Questions 
+
+```{r}
+#PLOTS 
+allofNYC <- subset(nyccrashdata, CRASH.DATE >= "2022-07-01" & CRASH.DATE < "2022-08-01")
+
+# Plot using ggplot
+ggplot(allofNYC, aes(x = as.Date(CRASH.DATE, "%m/%d/%Y"), y = NUMBER.OF.PERSONS.INJURED)) +
+  geom_line() +
+  labs(x = "July Dates", y = "Number of Persons Injured") +
+  ggtitle("Number of Persons Injured by Date in all of NYC")
+
+
+```
+
+```{r}
+brooklyn <- subset(nyccrashdata, BOROUGH == "BROOKLYN" & CRASH.DATE >= "2022-07-01" & CRASH.DATE < "2022-08-01")
+
+queens <- subset(nyccrashdata, BOROUGH == "QUEENS" & CRASH.DATE >= "2022-07-01" & CRASH.DATE < "2022-08-01")
+
+combined_data <-rbind(brooklyn, queens)
+
+ggplot(combined_data, aes(x = as.Date(CRASH.DATE, "%m/%d/%Y"), y = NUMBER.OF.PERSONS.INJURED, color = BOROUGH)) +
+  geom_line() +
+  labs(x = "Crash Date", y = "Number of Persons Injured")+
+  ggtitle("Number of Persons Injured by Date")
+```
+
+### Plot Conclusion: 
+
+Based on these plots, the number of injuries that occur in Queens and Brooklyn look about the same.
+There is some variability from day to day but that is to be expected when evaluating car crashes.
+It would be difficult to make any conclusions from the plots so we will see if a hypothesis test for a difference in the mean injuries can give more insights.
+
+## Hypothesis Test For a Difference in Two Means
+
+------------------------------------------------------------------------
+
+### Test 1 Question:
+
+Is the mean number of injuries that are occur in Brooklyn in the month of July different from the mean number of injuries that occur in Queens in the month of July?
+
+------------------------------------------------------------------------
+
+We will perform a hypothesis test for a difference of two means based on the following hypotheses:
+
+-   $H_0$: There is no difference in the mean number of injuries from car crashes in July between Brooklyn and Queens.
+
+    $$
+    \mu_{Injuries\ from \ Brooklyn \ Car \ Crashes} - \mu_{Injuries\ from \ Queens \ Car \ Crashes} = 0 $$
+
+-   $H_a$: There is a difference in the mean number of injuries from car crashes in July between Brooklyn and Queens.$$
+    \mu_{Injuries\ from \ Brooklyn \ Car \ Crashes} - \mu_{Injuries\ from \ Queens \ Car \ Crashes} \ne 0 $$
+
+### Classical Method (Central Limit Theorem)
+
+```{r - Finding Test Stat and P-value for Diff in 2 Means}
+brooklyn <- subset(nyccrashdata,
+                    select = NUMBER.OF.PERSONS.INJURED,
+                    BOROUGH == "BROOKLYN" &
+                    CRASH.DATE >= "2022-07-01" &
+                    CRASH.DATE < "2022-08-01",
+                    drop = TRUE)
+
+queens <- subset(nyccrashdata,
+                    select = NUMBER.OF.PERSONS.INJURED,
+                    BOROUGH == "QUEENS" &
+                    CRASH.DATE >= "2022-07-01" &
+                    CRASH.DATE < "2022-08-01",
+                    drop = TRUE)
+
+
+#Classical Method By-Hand
+sdbrooklyn <- sd(brooklyn)
+sdqueens <- sd(queens)
+
+(lbrooklyn <- length(brooklyn))
+lqueens <- length(queens)
+
+mean.diff <- mean(brooklyn) - mean(queens)
+se = sqrt(sdbrooklyn^2/lbrooklyn + sdqueens^2/lqueens)
+
+#test statistic 
+test.stat <- mean.diff/se
+
+#p value based on smallest n value (lqueens)
+(p.value <-(1 - pt(test.stat, lqueens-1)) * 2)
+```
+
+```{r - t-test}
+#Classical Method t-test way  
+pooleddata <- subset(nyccrashdata,
+                      (BOROUGH == "BROOKLYN" | BOROUGH == "QUEENS") &
+                      CRASH.DATE >= "2022-07-01" &
+                    CRASH.DATE < "2022-08-01")
+
+hist(pooledata)
+
+t.test(NUMBER.OF.PERSONS.INJURED ~ BOROUGH, data = pooleddata, alt = "two.sided")
+```
+
+### Permutation Test
+
+```{r - Permutation for Diff. in Means}
+#test statistic
+observed <- mean(brooklyn) - mean(queens)
+
+#pool data to include # of injuries from both boroughs
+pooleddata <- c(brooklyn, queens)
+
+total <- length(pooleddata)
+bjulylength <- length(brooklyn)
+
+N <- 10^5 - 1
+result <- numeric(N)
+
+for (i in 1:N)
+{
+  index <- sample(total, size = bjulylength, replace = FALSE)
+  result[i] <- mean(pooleddata[index])- mean(pooleddata[-index])
+}
+```
+
+```{r - Histogram of results}
+
+hist(result, xlab = "xbar_injuries_brooklyn - xbar_inuries_queens",
+     main = "Permutation Distribution for Difference in Means in Injuries")
+abline(v = c(-observed, observed), col = c("blue","red"))
+
+(pvalue <- 2* ((sum(result >= abs(observed))+1)/(N+1)))
+```
+
+### Results
+
+-   Assumptions
+
+    -   Classical Method:
+
+        -   The data is normally distributed and symmetrical or n \> 30.
+
+        -   Variables are independent.
+
+        -   Sample is random.
+
+    -   Permutation Test:
+
+        -   Data can be scrambled based on null hypothesis.
+
+        -   Variables are independent.
+
+        -   Sample is random.
+
+-   P-Value
+
+    -   Classical Method: 0.00954, Permutation Test: 0.0102
+
+        -   Based on the classical method, there is about a 0.9% chance of observing a difference as or more extreme than the observed difference in the mean number of injuries that happen in Brooklyn versus Queens in the month of July. And based on the permutation test, the probability is 1.02%. There is a slight difference between the two p-values but because we meet the size criteria for applying the central limit (n \> 30).
+        -   Significance Level: $\alpha$ = 0.05
+            -   0.00954 \< 0.05
+
+            -   0.0102 \< 0.05
+        -   Since in both cases the p-value is less than the significance level of 0.05, we can reject the null hypothesis and accept the alternative hypothesis that says: There is a difference in the mean number of injuries from car crashes in July between Brooklyn and Queens.
+
+------------------------------------------------------------------------
+
+# Test 2:
+
+## Hypothesis Test For a Difference in Two Proportions
+
+------------------------------------------------------------------------
+
+### Test 1 Question:
+
+Is there a difference between the proportion of car crashes in Brooklyn versus Queens during the month of July?
+
+------------------------------------------------------------------------
+
+We will perform a hypothesis test for a difference of two proportions based on the following hypotheses:
+
+-   $H_0$: There is no difference in the proportion of car crashes that occur in Brooklyn in July when compared to proportion of car crashes that occur in Queens in July.
+
+    $$
+    p_{\ Crashes \ in \ Brooklyn \ in \ July} - p_{\ Crashes \ in \ Queens \ in \ July} = 0 $$
+
+-   $H_a$: There is a difference in the proportion of car crashes that occur in Brooklyn in July when compared to proportion of car crashes that occur in Queens in July.
+
+    $$
+    p_{\ Crashes \ in \ Brooklyn \ in \ July} - p_{\ Crashes \ in \ Queens \ in \ July} \ne 0 $$
+
+### Classical Method 
+
+```{r - Finding Test Stat and P-value for Diff. in Proportions}
+#subset data for calculations of test proportion
+n.brooklynjuly <- nrow(subset(nyccrashdata,
+                    BOROUGH == "BROOKLYN" &
+                    CRASH.DATE >= "2022-07-01" &
+                    CRASH.DATE < "2022-08-01",
+                    drop = TRUE))
+
+n.brooklyntotal <- nrow(subset(nyccrashdata,
+                    BOROUGH == "BROOKLYN",
+                    drop = TRUE))
+
+
+n.queensjuly <- nrow(subset(nyccrashdata,
+                    BOROUGH == "QUEENS" &
+                    CRASH.DATE >= "2022-07-01" &
+                    CRASH.DATE < "2022-08-01",
+                    drop = TRUE))
+
+n.queenstotal <- nrow(subset(nyccrashdata,
+                    BOROUGH == "QUEENS",
+                    drop = TRUE))
+
+#proportion calculations
+pbrooklyn <- n.brooklynjuly/n.brooklyntotal
+pqueens <- n.queensjuly/n.queenstotal
+ppooled <- (n.brooklynjuly + n.queensjuly)/(n.brooklyntotal + n.queenstotal)
+
+#standard error calcuation based on proportion calculations
+se <- sqrt(((1/n.brooklyntotal) + (1/n.queenstotal))*(ppooled*(1-ppooled)))
+
+#test statistic
+(test.stat <- (pbrooklyn - pqueens)/(se))
+
+#p-value calculation using pnorm ? pbinom? 
+pnorm(test.stat,0,1) * 2
+```
+
+```{r - Prop test}
+#prop test way
+prop.test(c(n.brooklynjuly,n.queensjuly), c(n.brooklyntotal,n.queenstotal), alt = "two.sided")
+```
+
+### Permutation Test 
+
+```{r - Permutation for Diff. in Props}
+
+#subset to get pooled data from Brooklyn and Queens for July Crashes
+pooleddates <- subset(nyccrashdata, 
+                      select = CRASH.DATE,
+                      (BOROUGH == "BROOKLYN" | BOROUGH == "QUEENS"))
+
+observed <- n.brooklynjuly/n.brooklyntotal - n.queensjuly/n.queenstotal
+
+
+#Permutation Loop
+N <- 10^5 - 1
+result <- numeric(N)
+
+# Set a condition for the permutation outside of the loop so that it did not take as long to permute 
+condition <- ifelse(pooleddates >= "2022-07-01" &
+        pooleddates < "2022-08-01", "yes","no")
+
+for (i in 1:N)
+{
+  index <- sample(length(condition), size = n.brooklyntotal, replace = FALSE)
+  result[i] <- sum(condition[index] == "yes")/(n.brooklyntotal) - sum(condition[-index] == "yes")/n.queenstotal
+}
+
+
+```
+
+```{r - P-Value of obserced statistic}
+#Creates histogram to display permutation distribution.
+hist(result, xlab = "P Hat Brooklyn - P Hat Queens",
+     main = "Permutation Distribution for Diff in Proportions of Crashes between 
+     Brooklyn and Queens")
+
+abline(v = c(observed,-observed), col = c("blue","red"))
+#print(pooleddataJulyvector)
+(p.value.2 <- (sum(result <= observed) + 1)/(N+1) * 2)
+
+```
+
+### Results
+
+-   Assumptions
+
+    -   Classical Method:
+
+        -   Approximately normally distributed as long as: np \> 10, n(1-p) \> 10 based on pooled proportion.
+
+        -   Variables are independent.
+
+        -   Sample is random.
+
+    -   Permutation Test:
+
+        -   Data can be scrambled based on null hypothesis.
+
+        -   Variables are independent.
+
+        -   Sample is random.
+
+-   P-Value
+
+    -   Classical Method: 0.7976, Permutation Test: 0.8002
+
+        -   Based on the classical method, there is about a 79.76% chance of observing a difference as or more extreme than the observed difference in proportion of crashes that happen in July between Brooklyn and Queens. And based on the permutation test, the probability is slightly higher at 80.02%. These values are very close and it is because the assumptions to perform the classical test were met by having a large enough sample size based on the pooled proportion (np \> 10 and n(1-p) \> 10).
+        -   Significance Level: $\alpha$ = 0.05
+            -   0.7976 \> 0.05
+
+            -   0.8002 \> 0.05
+        -   Since in both cases the p-value is more than the significance level of 0.05, we fail to reject the null hypothesis and the test is inconclusive. This means that the test is not significantly significant and we cannot make any conclusions about the difference in proportion of accidents that happen in July between Brooklyn and Queens.
+
+------------------------------------------------------------------------
+
+# Confidence Interval:
+
+## Confidence Interval for Population Mean - Average Number of Injuries Due to Car Crash for Particular Day:
+
+------------------------------------------------------------------------
+
+We made a 95% confidence interval for the mean number of injuries for a particular day in Brooklyn.
+
+We will look at a sample injuries that occur on one day in one borough (Brooklyn).
+We will then construct a confidence interval containing the population mean for crashes on that specific day across all boroughs of New York City.
+
+```{r}
+#subset of data for injuries on july first in all of New York City  
+allofnewyork <- subset(nyccrashdata,
+                select = NUMBER.OF.PERSONS.INJURED,
+                CRASH.DATE == "2022-07-01",
+                drop = TRUE)
+#subset of data for injuries on july first in all of just Brooklyn 
+brooklyn <- subset(nyccrashdata,
+                    select = NUMBER.OF.PERSONS.INJURED,
+                    BOROUGH == "BROOKLYN" &
+                    CRASH.DATE == "2022-07-01", 
+                    drop = TRUE)
+
+t.test(brooklyn, conf.level = 0.95)$conf
+
+mean(allofnewyork)
+
+```
+
+### Results
+
+There is a 95% chance that the interval from 0.4523 to 0.8388 contains the mean number of injuries that occured on July 1st, 2022 in all of New York City .
+
+We confirmed this confidence interval contained the mean number of injuries for all of NYC on July 1st ($\mu$ = 0.491).
+This was only possible because we have access to the population data.
+
+------------------------------------------------------------------------
